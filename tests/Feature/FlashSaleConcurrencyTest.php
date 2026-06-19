@@ -2,13 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\Product;
 use Illuminate\Process\Pool;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
-use App\Models\Order;
-use App\Models\OrderItem;
-use App\Models\Product;
 use Tests\TestCase;
 
 class FlashSaleConcurrencyTest extends TestCase
@@ -61,6 +61,7 @@ class FlashSaleConcurrencyTest extends TestCase
             'discount_price' => 25_000,
         ]);
 
+        // Use real PHP worker processes against one database file to reproduce a flash-sale burst.
         $processes = Process::concurrently(function (Pool $pool) use ($attempts, $product): void {
             foreach (range(1, $attempts) as $attempt) {
                 $pool->as((string) $attempt)

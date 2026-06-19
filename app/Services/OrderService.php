@@ -8,6 +8,7 @@ use App\Models\Product;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 class OrderService
 {
@@ -26,9 +27,12 @@ class OrderService
                     throw $exception;
                 }
 
+                // Back off briefly so competing flash-sale writers can finish their transaction.
                 usleep(25_000 * $attempt);
             }
         }
+
+        throw new RuntimeException('Unable to create order after concurrency retry attempts.');
     }
 
     /**
@@ -52,6 +56,7 @@ class OrderService
                 throw new InsufficientInventoryException($productId, $quantity);
             }
 
+            // Atomic conditional decrement: one SQL statement prevents overselling under concurrent orders.
             $updatedRows = Product::query()
                 ->whereKey($productId)
                 ->where('inventory_quantity', '>=', $quantity)
@@ -91,10 +96,12 @@ class OrderService
 
     private function isTransientConcurrencyError(QueryException $exception): bool
     {
-        return str_contains($exception->getMessage(), 'database is locked')
-            || str_contains($exception->getMessage(), 'database table is locked')
-            || str_contains($exception->getMessage(), 'Deadlock found')
-            || str_contains($exception->getMessage(), 'deadlock detected')
-            || str_contains($exception->getMessage(), 'Lock wait timeout exceeded');
+        $message = strtolower($exception->getMessage());
+
+        return str_contains($message, 'database is locked')
+            || str_contains($message, 'database table is locked')
+            || str_contains($message, 'deadlock found')
+            || str_contains($message, 'deadlock detected')
+            || str_contains($message, 'lock wait timeout exceeded');
     }
 }
