@@ -33,6 +33,7 @@ class HiddenItemSolver
         $position = $this->findStart($grid);
         $probable = [];
 
+        // Probable locations are the clear-path cells visited while following Up, Right, then Down.
         foreach ([[-1, 0, $up], [0, 1, $right], [1, 0, $down]] as [$rowDelta, $columnDelta, $steps]) {
             for ($step = 0; $step < $steps; $step++) {
                 $next = [
