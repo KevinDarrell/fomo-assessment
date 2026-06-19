@@ -1,58 +1,366 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Fullstack Engineer Assessment
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+This repository contains a PHP/Laravel solution for the Fullstack Engineer Assessment.
 
-## About Laravel
+It includes:
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+1. **Task 1: Online Store API** with race-safe flash-sale order creation.
+2. **Task 2: Hidden Item CLI** with coordinate output and bonus grid rendering.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+---
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Requirements
 
-## Learning Laravel
+- PHP 8.3+
+- Composer
+- SQLite extension enabled (`pdo_sqlite`, `sqlite3`)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+---
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Setup
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Install dependencies:
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Create the environment file if it does not exist:
 
-## Contributing
+```bash
+cp .env.example .env
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+On Windows CMD, use:
 
-## Code of Conduct
+```cmd
+copy .env.example .env
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Generate the application key:
 
-## Security Vulnerabilities
+```bash
+php artisan key:generate
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Create the SQLite database file if it does not exist:
 
-## License
+```bash
+touch database/database.sqlite
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+On Windows CMD, use:
+
+```cmd
+type nul > database\database.sqlite
+```
+
+Run migrations:
+
+```bash
+php artisan migrate --force
+```
+
+Run the test suite:
+
+```bash
+php artisan test
+```
+
+Expected result:
+
+```txt
+11 passed
+```
+
+---
+
+# Task 1: Online Store API
+
+## Summary
+
+The API supports product creation/listing and order creation. It is designed for a flash-sale scenario where many orders may try to buy the same discounted product concurrently.
+
+The key safety rule is:
+
+> Inventory quantity must never become negative.
+
+## API Endpoints
+
+List API routes:
+
+```bash
+php artisan route:list --path=api
+```
+
+Available endpoints:
+
+```txt
+GET      /api/products
+POST     /api/products
+GET      /api/products/{product}
+POST     /api/orders
+GET      /api/orders/{order}
+```
+
+All API responses use JSON.
+
+## Race-Safe Inventory Strategy
+
+Order creation uses an atomic conditional decrement:
+
+```php
+Product::query()
+    ->whereKey($productId)
+    ->where('inventory_quantity', '>=', $quantity)
+    ->decrement('inventory_quantity', $quantity);
+```
+
+This is intentionally a single database update statement. Under concurrent requests, only transactions that still see enough inventory can decrement stock. If no row is updated, the order is rejected with `409 Conflict`.
+
+The order service also retries transient concurrency errors such as SQLite write locks or database deadlocks. This makes the implementation resilient when multiple flash-sale workers write at the same time.
+
+## Running the API Locally
+
+Start the server:
+
+```bash
+php artisan serve
+```
+
+The API will usually be available at:
+
+```txt
+http://127.0.0.1:8000
+```
+
+## Manual API Test
+
+### Create a product
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/products \
+  -H "Content-Type: application/json" \
+  --data-raw '{"name":"Flash Sale Headphones","inventory_quantity":5,"price":250000,"discount_price":25000}'
+```
+
+Windows CMD version:
+
+```cmd
+curl -X POST http://127.0.0.1:8000/api/products -H "Content-Type: application/json" --data-raw "{\"name\":\"Flash Sale Headphones\",\"inventory_quantity\":5,\"price\":250000,\"discount_price\":25000}"
+```
+
+Expected response:
+
+```json
+{
+  "message": "Product created successfully."
+}
+```
+
+### List products
+
+```bash
+curl http://127.0.0.1:8000/api/products
+```
+
+### Create an order
+
+Assuming the product ID is `1`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/orders \
+  -H "Content-Type: application/json" \
+  --data-raw '{"items":[{"product_id":1,"quantity":2}]}'
+```
+
+Windows CMD version:
+
+```cmd
+curl -X POST http://127.0.0.1:8000/api/orders -H "Content-Type: application/json" --data-raw "{\"items\":[{\"product_id\":1,\"quantity\":2}]}"
+```
+
+Expected response:
+
+```json
+{
+  "message": "Order created successfully."
+}
+```
+
+The product inventory should decrease from `5` to `3`.
+
+### Check product inventory
+
+```bash
+curl http://127.0.0.1:8000/api/products/1
+```
+
+### Test insufficient inventory
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/api/orders \
+  -H "Content-Type: application/json" \
+  --data-raw '{"items":[{"product_id":1,"quantity":999}]}'
+```
+
+Windows CMD version:
+
+```cmd
+curl -i -X POST http://127.0.0.1:8000/api/orders -H "Content-Type: application/json" --data-raw "{\"items\":[{\"product_id\":1,\"quantity\":999}]}"
+```
+
+Expected response code:
+
+```txt
+409 Conflict
+```
+
+Expected message:
+
+```json
+{
+  "message": "Insufficient inventory for product."
+}
+```
+
+## Automated Task 1 Tests
+
+Run all tests:
+
+```bash
+php artisan test
+```
+
+Run only the flash-sale race-condition test:
+
+```bash
+php artisan test --filter=FlashSaleConcurrencyTest
+```
+
+Run explicit API behavior tests:
+
+```bash
+php artisan test --filter=OrderApiTest
+```
+
+The flash-sale test starts multiple PHP worker processes against one shared SQLite database file. This reproduces a burst of concurrent orders and verifies that:
+
+- only available stock can be sold,
+- extra orders are rejected,
+- inventory ends at zero, not negative,
+- no unexpected database or application errors occur.
+
+---
+
+# Task 2: Hidden Item CLI
+
+## Summary
+
+The hidden item game uses this grid:
+
+```txt
+########
+#......#
+#.###..#
+#...#.##
+#X#....#
+########
+```
+
+Symbols:
+
+- `#` = obstacle
+- `.` = clear path
+- `X` = player's starting position
+- `$` = probable hidden item location in the bonus output
+
+## Interpretation
+
+The assessment does not specify how `A`, `B`, and `C` are provided, so this solution accepts them as command-line options:
+
+- `--up=A`
+- `--right=B`
+- `--down=C`
+
+Coordinates are displayed as **1-based `(row, column)`** values.
+
+Probable item locations are interpreted as every clear-path cell visited while following the required movement order:
+
+```txt
+Up/North A step(s) -> Right/East B step(s) -> Down/South C step(s)
+```
+
+Movement stops when the next cell is an obstacle or outside the grid.
+
+## Run the CLI
+
+```bash
+php artisan hidden-item:solve --up=3 --right=4 --down=2
+```
+
+Expected output:
+
+```txt
+Hidden Item Solver
+Start position: (5, 2)
+
+Probable item coordinates, using 1-based (row, column):
+- (4, 2)
+- (3, 2)
+- (2, 2)
+- (2, 3)
+- (2, 4)
+- (2, 5)
+- (2, 6)
+- (3, 6)
+- (4, 6)
+
+Grid with probable item locations:
+########
+#$$$$$.#
+#$###$.#
+#$..#$##
+#X#....#
+########
+```
+
+## Automated Task 2 Tests
+
+Run solver unit tests:
+
+```bash
+php artisan test --filter=HiddenItemSolverTest
+```
+
+Run CLI command tests:
+
+```bash
+php artisan test --filter=HiddenItemCommandTest
+```
+
+---
+
+## Code Quality
+
+The solution separates responsibilities into:
+
+- Form request classes for API validation.
+- Controllers for HTTP request/response handling.
+- `OrderService` for race-safe order creation.
+- Domain models for product/order relationships.
+- Feature tests for API and concurrency behavior.
+- `HiddenItemSolver` for grid movement logic.
+- Artisan command tests for CLI behavior.
+
+Code style can be checked with Laravel Pint:
+
+```bash
+vendor/bin/pint --test
+```
+
+On Windows CMD:
+
+```cmd
+vendor\bin\pint --test
+```
