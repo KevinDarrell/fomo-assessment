@@ -15,6 +15,8 @@ It includes:
 - Composer
 - SQLite extension enabled (`pdo_sqlite`, `sqlite3`)
 
+The default `.env.example` is already configured to use SQLite via `DB_CONNECTION=sqlite`.
+
 ---
 
 ## Setup
@@ -28,13 +30,13 @@ composer install
 Create the environment file if it does not exist:
 
 ```bash
-cp .env.example .env
+[ -f .env ] || cp .env.example .env
 ```
 
-On Windows CMD, use:
+On Windows CMD, use this non-destructive command:
 
 ```cmd
-copy .env.example .env
+if not exist .env copy .env.example .env
 ```
 
 Generate the application key:
@@ -49,10 +51,10 @@ Create the SQLite database file if it does not exist:
 touch database/database.sqlite
 ```
 
-On Windows CMD, use:
+On Windows CMD, use this non-destructive command:
 
 ```cmd
-type nul > database\database.sqlite
+if not exist database\database.sqlite type nul > database\database.sqlite
 ```
 
 Run migrations:
@@ -107,7 +109,7 @@ All API responses use JSON.
 
 ## Race-Safe Inventory Strategy
 
-Order creation uses an atomic conditional decrement:
+The flash-sale risk is overselling: two requests may read the same stock value at the same time and both try to buy it. To avoid that, inventory is not decremented in PHP memory. It is decremented directly in the database with a condition:
 
 ```php
 Product::query()
@@ -116,9 +118,11 @@ Product::query()
     ->decrement('inventory_quantity', $quantity);
 ```
 
-This is intentionally a single database update statement. Under concurrent requests, only transactions that still see enough inventory can decrement stock. If no row is updated, the order is rejected with `409 Conflict`.
+This statement means: "decrease stock only if this product still has enough inventory." The database performs the check and decrement as one atomic update. If another request already consumed the stock, this update affects `0` rows and the API returns `409 Conflict` instead of allowing negative inventory.
 
-The order service also retries transient concurrency errors such as SQLite write locks or database deadlocks. This makes the implementation resilient when multiple flash-sale workers write at the same time.
+Order creation is also wrapped in a transaction so the order, order items, total amount, and inventory update succeed or fail together.
+
+The service retries short-lived concurrency errors such as SQLite write locks or database deadlocks. This is useful for the functional test, where many PHP worker processes write to the same flash-sale product at the same time.
 
 ## Running the API Locally
 
@@ -338,6 +342,32 @@ Run CLI command tests:
 ```bash
 php artisan test --filter=HiddenItemCommandTest
 ```
+
+---
+
+## Design Decisions
+
+- Product prices are stored as integers to avoid floating-point money precision issues.
+- `discount_price` is optional; when present, order items use it as the sale price.
+- Duplicate product IDs in a single order are normalized before inventory is decremented.
+- Inventory uses an atomic conditional update to prevent overselling during concurrent orders.
+- Order creation is transactional so partial orders are not persisted when inventory is insufficient.
+- The flash-sale functional test uses real PHP worker processes against one shared SQLite file to simulate concurrent buyers.
+- Hidden Item coordinates are shown as 1-based `(row, column)` values for readability.
+
+## Assumptions
+
+- The assessment does not require authentication, so the API is intentionally public.
+- The assessment does not define how Hidden Item values `A`, `B`, and `C` are provided, so they are accepted as CLI options.
+- Hidden Item probable locations are interpreted as clear-path cells visited during the required Up -> Right -> Down movement sequence.
+- Hidden Item movement stops when the next step is blocked by an obstacle or grid boundary.
+
+## Test Summary
+
+- `OrderApiTest` verifies normal order API behavior, empty order validation, and insufficient inventory conflict responses.
+- `FlashSaleConcurrencyTest` verifies that concurrent flash-sale orders cannot oversell inventory.
+- `HiddenItemSolverTest` verifies grid movement logic and bonus `$` rendering.
+- `HiddenItemCommandTest` verifies CLI output and input validation.
 
 ---
 
